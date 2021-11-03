@@ -2,4 +2,4 @@ jdk:
   - openjdk11
 
 install:
-  - ./gradlew build :library-client-rtsp:publishToMavenLocal
+  - ./gradlew build :library-app-exit-check:publishToMavenLocal
