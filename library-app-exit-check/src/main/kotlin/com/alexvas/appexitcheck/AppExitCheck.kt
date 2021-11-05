@@ -13,13 +13,14 @@ class AppExitCheck private constructor(
     private val listener: AppExitCheckListener?,
     private val timeout: Int,
     private val interval: Int,
-    private val threshold: Int) {
+    private val threshold: Int,
+    private val debug: Boolean) {
 
     private var postCheckTimer: Timer? = null
     private var lastRxBytesObtained: Long = 0
 
     companion object {
-        const val DEBUG = true
+        const val DEBUG = false
         val TAG: String = AppExitCheck::class.java.simpleName
     }
 
@@ -32,11 +33,12 @@ class AppExitCheck private constructor(
         private var timeout:   Int = 5000 // msec
         private var interval:  Int = 5000 // msec
         private var threshold: Int = 0    // bytes
+        private var debug: Boolean = false
         private var listener: AppExitCheckListener? = null
 
         /**
          * Timeout (msec) specifies when the check should be done after
-         * scheduleAppExitCheck() method is called.
+         * scheduleAppExitCheck() method called.
          * By default, 5000.
          */
         fun withTimeout(value: Int): Builder {
@@ -64,6 +66,15 @@ class AppExitCheck private constructor(
         }
 
         /**
+         * Show debug info on logcat.
+         * By default, false.
+         */
+        fun withDebug(value: Boolean): Builder {
+            this.debug = value
+            return this
+        }
+
+        /**
          * Callback to be called when leaked bytes detected.
          */
         fun withListener(value: AppExitCheckListener?): Builder {
@@ -72,14 +83,12 @@ class AppExitCheck private constructor(
         }
 
         fun build(): AppExitCheck {
-            return AppExitCheck(context, listener, timeout, interval, threshold)
+            return AppExitCheck(context, listener, timeout, interval, threshold, debug)
         }
     }
 
     /**
-     * Create a separate thread with 3 tasks.
-     * 1. First task is called after timeout msec
-     * 2. Check if network traffic is still consumed and kill the app if traffic leaked. After 30 seconds.
+     * Schedule traffic consumption check.
      */
     fun scheduleAppExitCheck() {
         cancelAppExitCheck()
@@ -88,17 +97,16 @@ class AppExitCheck private constructor(
         if (DEBUG) Log.v(TAG, "scheduleAppExitCheck()")
         if (postCheckTimer == null) postCheckTimer = Timer("AppExitCheckTimer")
 
-        // Create a separate thread with 3 tasks.
-
-        // Save last consumed traffic state.
+        // Create a separate thread with 2 tasks.
+        // 1. Save last consumed traffic state.
         postCheckTimer!!.schedule(object : TimerTask() {
             override fun run() {
                 lastRxBytesObtained = getRxBytes()
-                Log.d(TAG, "Total RX bytes 1: $lastRxBytesObtained")
+                if (debug) Log.d(TAG, "Total RX bytes 1: $lastRxBytesObtained")
             }
         }, timeout + 0L)
 
-        // Check if network traffic is still consumed.
+        // 2. Check if network traffic is still consumed.
         postCheckTimer!!.schedule(object : TimerTask() {
             override fun run() {
                 checkTrafficConsumption()
@@ -108,6 +116,9 @@ class AppExitCheck private constructor(
         }, (timeout + interval).toLong())
     }
 
+    /**
+     * Cancel traffic consumption check.
+     */
     fun cancelAppExitCheck() {
         if (DEBUG) Log.v(TAG, "cancelAppExitCheck()")
         postCheckTimer?.cancel()
@@ -117,21 +128,28 @@ class AppExitCheck private constructor(
     private fun checkTrafficConsumption() {
         if (DEBUG) Log.v(TAG, "checkTrafficConsumption()")
         val rx = getRxBytes()
-        if (DEBUG) Log.d(TAG, "Total RX bytes 2: $rx")
+        if (debug) Log.d(TAG, "Total RX bytes 2: $rx")
         val consumedBytes: Long = rx - lastRxBytesObtained
         if (consumedBytes - threshold > 0) {
-            Log.i(TAG, "Traffic consumed within 10 sec $consumedBytes bytes")
+            if (debug) Log.i(TAG, "Traffic consumed within $interval msec $consumedBytes bytes")
             listener?.onFailedLeakedTrafficDetected(consumedBytes)
             lastRxBytesObtained = rx
+        } else {
+            if (debug) Log.i(TAG, "No traffic consumption detected")
+            listener?.onSuccess()
         }
     }
 
+    /**
+     * Get number of bytes received for the current package.
+     */
     private fun getRxBytes(): Long {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val processes = activityManager.runningAppProcesses
         if (processes != null) {
             for (process in processes) {
                 if (context.packageName.equals(process.processName, ignoreCase = true)) {
+                    // Suppose app has only 1 process
                     return TrafficStats.getUidRxBytes(process.uid)
                 }
             }

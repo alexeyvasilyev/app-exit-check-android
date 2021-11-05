@@ -4,11 +4,11 @@ import android.annotation.SuppressLint
 import android.app.*
 import android.content.Intent
 import android.graphics.Color
-import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
+import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import com.alexvas.appexitcheck.AppExitCheck
 import com.alexvas.appexitcheck.AppExitCheck.AppExitCheckListener
@@ -17,12 +17,17 @@ import java.lang.Exception
 import java.net.URL
 import java.util.*
 import javax.net.ssl.HttpsURLConnection
+import androidx.core.app.NotificationManagerCompat
+
+import android.app.NotificationManager
+
 
 class MainActivity : AppCompatActivity() {
 
     private var appExitCheck: AppExitCheck? = null
     private var leakTimer: Timer? = null
     private var button: Button? = null
+    private val ACTION_KILL = "android.intent.action.KILL"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,6 +43,8 @@ class MainActivity : AppCompatActivity() {
                             url.openConnection() as HttpsURLConnection
                         // Do nothing. HTTPS negotiation already increased traffic consumption
                         Log.i(TAG, "$url response code ${connection.responseCode}")
+                        connection.inputStream.close()
+                        connection.disconnect()
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -46,15 +53,22 @@ class MainActivity : AppCompatActivity() {
             button!!.isEnabled = false
         }
 
+        createNotificationChannel()
+
         AppExitCheck.Builder(this)
+            // Log debug data on logcat
+            .withDebug(true)
+            // Show warning only if at least 100 bytes leaked
             .withThreshold(100)
-            .withTimeout(5000)
-            .withInterval(2000)
+            // Start checking after 2 sec app closed
+            .withTimeout(2000)
+            // Measure traffic consumption within 5 sec
+            .withInterval(5000)
             .withListener(object : AppExitCheckListener {
                 override fun onFailedLeakedTrafficDetected(leakedBytes: Long) {
                     showLeaksNotification(
                         "App leaked traffic detected",
-                        "Consumed $leakedBytes bytes within 2 sec after app closed."
+                        "Consumed $leakedBytes bytes within 5 sec after app closed."
                     )
                 }
 
@@ -63,24 +77,16 @@ class MainActivity : AppCompatActivity() {
                 }
             })
             .build().also { appExitCheck = it }
-        createNotifications()
     }
 
-    private fun createNotifications() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelDefault = NotificationChannel(
-                "channel_debug",
-                "Debug",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            channelDefault.setShowBadge(false)
-//          channelDefault.setLightColor(Color.RED); //小红点颜色
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                channelDefault
-            )
-        }
+    private fun createNotificationChannel() {
+        val channel =
+            NotificationChannelCompat.Builder("channel_debug", NotificationManagerCompat.IMPORTANCE_HIGH)
+                .setName("Debug")
+                .build()
+        val manager = NotificationManagerCompat.from(this)
+        manager.createNotificationChannel(channel)
     }
-
 
     @SuppressLint("InlinedApi")
     private fun showLeaksNotification(
@@ -104,16 +110,41 @@ class MainActivity : AppCompatActivity() {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setColor(Color.RED)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+        val killIntent = Intent(this, MainActivity::class.java)
+        killIntent.action = ACTION_KILL
+
+        val killPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            killIntent,
+            PendingIntent.FLAG_IMMUTABLE)
+
+        builder.addAction(
+            R.drawable.ic_alert_circle_black_24dp,
+            "Kill app",
+            killPendingIntent)
 
         // Show new notification icon
         nm.notify(54321, builder.build())
+    }
+
+    private fun killApp() {
+        // Kill the current process
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onResume() {
         super.onResume()
         appExitCheck?.cancelAppExitCheck()
         button!!.isEnabled = true
+
+        if (intent.action == ACTION_KILL) {
+            finish()
+            killApp()
+        }
     }
 
     override fun onPause() {

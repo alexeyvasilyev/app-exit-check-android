@@ -4,7 +4,6 @@ plugins {
     id 'maven-publish'
 }
 
-apply from: '../constants.gradle'
 apply plugin: 'com.android.library'
 
 project.afterEvaluate {
