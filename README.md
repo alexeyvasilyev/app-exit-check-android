@@ -14,42 +14,48 @@ allprojects {
   }
 }
 dependencies {
-  implementation 'com.github.alexeyvasilyev:app-exit-check-android:0.0.3'
+  implementation 'com.github.alexeyvasilyev:app-exit-check-android:0.0.4'
 }
 ```
 
 ## How to use:
-```java
+```kotlin
+private var appExitCheck: AppExitCheck? = null
+
 // Put in Application onCreate()
 if (BuildConfig.DEBUG) {
-    appExitCheck = new AppExitCheck.Builder(this)
-        .withListener(new AppExitCheck.AppExitCheckListener() {
-            @Override
-            public void onFailedLeakedTrafficDetected(long leakedBytes) {
+    AppExitCheck.Builder(this)
+        // Log debug data on logcat
+        .withDebug(true)
+        // Show warning only if at least 100 bytes leaked
+        .withThreshold(100)
+        // Start checking after 2 sec app closed
+        .withTimeout(2000)
+        // Measure traffic consumption within 5 sec
+        .withInterval(5000)
+        .withListener(object : AppExitCheckListener {
+            override fun onFailedLeakedTrafficDetected(leakedBytes: Long) {
                 showLeaksNotification(
-                        "App leaked traffic detected",
-                        "Consumed " + leakedBytes + " bytes within 2 sec in 30 sec after app closed."
-                );
+                    "App leaked traffic detected",
+                    "Consumed $leakedBytes bytes within 5 sec after app closed."
+                )
             }
 
-            @Override
-            public void onSuccess() {
+            override fun onSuccess() {
+                Log.i(TAG, "No leaks detected")
             }
         })
-        .withThreshold(100)
-        .withTimeout(30000)
-        .withInterval(2000)
-        .build();
+        .build().also { appExitCheck = it }
 }
-    
+
 // When app goes to background put
-if (BuildConfig.DEBUG && appExitCheck != null) {
-    appExitCheck.scheduleAppExitCheck();
+if (BuildConfig.DEBUG) {
+    appExitCheck?.scheduleAppExitCheck()
 }
 
 // When app goes to foreground
-if (BuildConfig.DEBUG && appExitCheck != null) {
-    appExitCheck.cancelAppExitCheck();
+if (BuildConfig.DEBUG) {
+    appExitCheck?.cancelAppExitCheck()
 }
 
 ```
