@@ -1,6 +1,8 @@
 # app-exit-check-android
 Android library designed for finding leaked network connections on app exit.
 
+Usually the library should be started when app goes to background to measure app traffic consumption within a given time interval.
+
 [![Release](https://jitpack.io/v/alexeyvasilyev/app-exit-check-android.svg)](https://jitpack.io/#alexeyvasilyev/app-exit-check-android)
 
 ## Compile
